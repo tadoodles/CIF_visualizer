@@ -1,4 +1,5 @@
 #src/cif_parser.py
+from src.constants import space_group_dict
 
 class CIFParser:
     def __init__(self, filename):
@@ -7,85 +8,97 @@ class CIFParser:
 
     def parse_file(self):
         try:
-            with open(self.filename, 'r') as file:
-                in_loop = False
-                loop_headers = []
-                loop_data = []
+                with open(self.filename, 'r') as file:
+                    header_collection_phase = False
+                    in_loop = False
+                    loop_headers = []
+                    loop_data = []
 
-                for line in file:
-                    line = line.strip()
+                    for line in file:
+                        line = line.strip()
 
-                    if line.startswith('#') or line.startswith(';'):
-                        continue
-                    
-                    if line.startswith('_') and not in_loop:
-                        parts = line.split(None, 1)
-                        if len(parts) == 2:
-                            key, value = parts
-                            self.data[key] = value
-                        else:
+                        if line.startswith('#') or line.startswith(';'):
+                            continue
+                        
+                        if line.startswith('_') and not in_loop:
+                            parts = line.split(None, 1)
+                            if len(parts) == 2:
+                                key, value = parts
+                                self.data[key] = value
+                            else:
+                                continue
+
+                        if line.startswith('loop_'):
+                            if in_loop:
+                                result = self.process_loop(loop_headers, loop_data)
+                                if 'loops' not in self.data:
+                                    self.data['loops'] = []
+                                self.data['loops'].append(result)
+
+                            in_loop = True
+                            loop_data = []
+                            loop_headers = []
+                            header_collection_phase = True
                             continue
 
-                    if line.startswith('loop_') and not in_loop:
-                        in_loop = True
-                        loop_data = []
-                        loop_headers = []
-                        continue
+                        if in_loop:
+                            if line.startswith('_'):
+                                if header_collection_phase:
+                                    loop_headers.append(line)
+                                else:
+                                    # We've already collected headers and started data
+                                    # This is a new data item, not another header
+                                    result = self.process_loop(loop_headers, loop_data)
+                                    if 'loops' not in self.data:
+                                        self.data['loops'] = []
+                                    self.data['loops'].append(result)
 
-                    if in_loop:
+                                    in_loop = False
+                                    loop_data = []
+                                    loop_headers = []
+                                    
+                                    # Process this as a new data item
+                                    if len(line.split()) > 1:
+                                        key, value = line.split(None, 1)
+                                        self.data[key] = value
+                                    else:
+                                        continue
+                            else: 
+                                if header_collection_phase:
+                                    header_collection_phase = False
+                                                              
+                                values = self.parse_line(line)
+                                if len(values) != len(loop_headers):  # If values don't match headers
+                                    result = self.process_loop(loop_headers, loop_data)
+                                    if 'loops' not in self.data:
+                                        self.data['loops'] = []
+                                    self.data['loops'].append(result)
+                                    in_loop = False
+                                else:
+                                    loop_data.append(values)
+
+                    if in_loop and loop_data:
+                        result = self.process_loop(loop_headers, loop_data)
                         if 'loops' not in self.data:
                             self.data['loops'] = []
-                        
-                        if  line.startswith('loop_'):
-                            result = self.process_loop(loop_headers, loop_data)
-                            self.data['loops'].append(result)
-                            loop_headers = []
-                            loop_data = []
-                            continue
-                        elif line.startswith('_') and len(line.split()) > 1:
-                            result = self.process_loop(loop_headers, loop_data)
-                            self.data['loops'].append(result)
+                        self.data['loops'].append(result)
 
-                            key, value = line.split(None, 1)
-                            self.data[key] = value
-
-                            in_loop = False
-                            loop_data = []
-                            loop_headers = []
-                            continue
-                        
-                        if line.startswith('_'):
-                            loop_headers.append(line)
-                        elif line:
-                            if not line or line.startswith('#'):
-                                continue
-                            
-                            if "'" in line:
-                                values = [line.strip()]
-                            else:
-                                values = line.split() 
-                            loop_data.append(values)
-
-                if in_loop and loop_data:
-                    result = self.process_loop(loop_headers, loop_data)
-                    self.data['loops'].append(result)
-
-                return self.data
-            
+                    return self.data
+                
         except FileNotFoundError:
             print(f"Error: File {self.filename} not found")
             return None 
 
     def process_loop(self, headers, data):
-        loop_dict = {}
-        for header in headers:
-            loop_dict[header] = []
-        for row in data:
-            for col_index, value in enumerate(row):
-                current_header = headers[col_index]
-                loop_dict[current_header].append(value)
+            loop_dict = {}
+            for header in headers:
+                loop_dict[header] = []
+            for row in data:
+                for col_index, value in enumerate(row):
+                    current_header = headers[col_index]
+                    loop_dict[current_header].append(value)
 
-        return loop_dict                      
+            return loop_dict                      
        
     def extract_cell_parameters(self):
         cell_parameters = {}
@@ -192,7 +205,7 @@ class CIFParser:
                         if optional_param in loop:
                             atomic_positions['U'].append(self.clean_value(loop[optional_param][i]))
                         else:
-                            atomic_positions['U'].append(None)                       
+                            atomic_positions['U'].append(0)                       
             
             return atomic_positions
 
@@ -209,3 +222,39 @@ class CIFParser:
             if '(' in value:
                 value = value.split('(')[0]
             return float(value)
+    
+    def parse_line(self, line):
+        values = []
+        current_value = []
+        in_quotes = False
+        
+        for char in line:
+            if char == "'":
+                in_quotes = not in_quotes
+                current_value.append(char)
+            elif char.isspace() and not in_quotes:
+                if current_value:
+                    values.append(''.join(current_value).strip())
+                    current_value = []
+            else:
+                current_value.append(char)
+        
+        if current_value:
+            values.append(''.join(current_value).strip())
+        
+        return values
+    
+    def extract_spaceGroup_number(self):
+        space_group_data = self.extract_space_group()
+
+        if '_symmetry_space_group_name_H-M' in space_group_data:
+            space_group_symbol = space_group_data['_symmetry_space_group_name_H-M']
+        elif '_space_group_name_H-M_alt' in space_group_data:
+            space_group_symbol = space_group_data['_space_group_name_H-M_alt']
+
+        if space_group_symbol in space_group_dict:
+            return space_group_dict[space_group_symbol]
+        else:
+            print(f"Warning: Space group '{space_group_symbol}' not found in dictionary.")
+            return None 
+
