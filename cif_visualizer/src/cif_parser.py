@@ -46,8 +46,6 @@ class CIFParser:
                                 if header_collection_phase:
                                     loop_headers.append(line)
                                 else:
-                                    # We've already collected headers and started data
-                                    # This is a new data item, not another header
                                     result = self.process_loop(loop_headers, loop_data)
                                     if 'loops' not in self.data:
                                         self.data['loops'] = []

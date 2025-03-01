@@ -3,8 +3,8 @@ import re
 import pyvista as pv
 from pyvistaqt import QtInteractor
 import numpy as np
-from PyQt5.QtWidgets import QWidget, QVBoxLayout
-from src.constants import element_colors
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QMessageBox
+from src.constants import element_colors, covalent_radii
 
 class CrystalViewer(QWidget):
     def __init__(self, parent=None):
@@ -12,30 +12,21 @@ class CrystalViewer(QWidget):
 
         layout = QVBoxLayout(self)
         
-        # Initialize the plotter
-        self.plotter = QtInteractor(self)  # Pass self as parent
+        self.plotter = QtInteractor(self)
         layout.addWidget(self.plotter)
 
         self.setup_plotter()
 
     def setup_plotter(self):
-        self.plotter.background_color = 'white'
+        self.plotter.background_color = 'gray'
         self.plotter.enable_trackball_style()
         self.plotter.show_axes()
         self.plotter.add_axes()
     
     def visualize_structure(self, cell_params, atomic_positions, repetitions=(1, 1, 1), space_group_number=None):
-        """
-        Visualize the crystal structure based on cell parameters and atomic positions.
-
-        Args:
-            cell_params: dictionary containing cell params: a, b, c, alpha, beta, gamma
-            atomic_positions: list of dictionaries containing atomic positions and properties        
-        """
+        
         self.plotter.clear()
 
-
-        #extract cell paramas
         a = cell_params.get('_cell_length_a', 1.0)
         b = cell_params.get('_cell_length_b', 1.0)
         c = cell_params.get('_cell_length_c', 1.0)
@@ -43,16 +34,8 @@ class CrystalViewer(QWidget):
         beta_rad = np.radians(cell_params.get('_cell_angle_beta', 90.0))
         gamma_rad = np.radians(cell_params.get('_cell_angle_gamma', 90.0))
 
-        #print cell params for debugging
-        print(f"Cell parameters: a={a}, b={b}, c={c}")
-        print(f"Angles: alpha={alpha_rad}, beta={beta_rad}, gamma={gamma_rad}")
-
         #calculate unit cell vertices
         vertices = self.calculate_unit_cell_vertices(a, b, c, alpha_rad, beta_rad, gamma_rad, space_group_number)
-
-        print("Unit cell vertices:")
-        for v in vertices:
-            print(v)
 
         #visualize the unit cell
         self.visualize_unit_cell(vertices)
@@ -65,15 +48,19 @@ class CrystalViewer(QWidget):
 
         #visualize atomic positions
         self.visualize_atomic_positions(supercell_atomic_positions)
+
+        #Calculate and visualize bonds
+        self.visualize_bonds(supercell_atomic_positions)
+
+        print("Done!")
+        QMessageBox.information(self, "Done", "Computations are done!")
     
     def visualize_unit_cell(self, vertices, color='black', line_width=2):
-        """
-        
-        """
+
         lines = []
         edge_pairs = [
-            [0, 1], [1, 2], [2, 3], [3, 0], #bottom face
-            [4, 5], [5, 6], [6, 7], [7, 4], #top face
+            [0, 1], [1, 2], [2, 3], [3, 0], #bottom
+            [4, 5], [5, 6], [6, 7], [7, 4], #top
             [0, 4], [1, 5], [2, 6], [3, 7], #vertical edges
         ]
 
@@ -84,9 +71,7 @@ class CrystalViewer(QWidget):
         self.plotter.add_mesh(unit_cell, color=color, line_width=line_width)
     
     def visualize_atomic_positions(self, atomic_positions):
-        """
-        Visualize atoms as spheres at their positions
-        """
+        
         default_color = 'lightgrey'
 
         for atom in atomic_positions:
@@ -94,20 +79,15 @@ class CrystalViewer(QWidget):
             label = atom.get('label', atom.get('element', atom.get('type', '')))
             element = self.extract_element(label)
 
-            # Check if atom is a dictionary
-            if not isinstance(atom, dict):
-                continue
-            
-            if element.upper() == 'H':
+            if not isinstance(atom, dict) or element.upper() == 'H':
                 continue
                 
-            # Get coordinates with proper error handling
             try:
                 x = float(atom.get('cart_x', 0.0))
                 y = float(atom.get('cart_y', 0.0))
                 z = float(atom.get('cart_z', 0.0))
 
-                radius = float(atom.get('radius', 0.5))
+                radius = float(atom.get('radius', 0.25))
                 color = element_colors.get(element, default_color)
                 
                 sphere = pv.Sphere(radius=radius, center=(x, y, z))
@@ -118,18 +98,14 @@ class CrystalViewer(QWidget):
                 print(f"Error processing atom: {atom}, error: {e}")
     
     def extract_element(self, label):
-        # Try to match standard element symbols (1 or 2 characters)
         element_match = re.match(r'([A-Z][a-z]?)', label)
         if element_match:
             return element_match.group(1)
         else:
-            # Fallback to extracting only the alphabetic characters
             return ''.join(c for c in label if c.isalpha())
     
     def convert_to_atom_list(self, atomic_data):
-        """
-        Convert data from parallel arrays to a list of atom dictionaries
-        """
+        
         atom_list = []
         
         # Get the number of atoms (length of any array)
@@ -149,16 +125,7 @@ class CrystalViewer(QWidget):
         return atom_list
     
     def fractional_to_cartesian(self, frac_coords, cell_params):
-        """
-        Convert fractional coordinates to cartesian coordinates
         
-        Parameters:
-        frac_coords (tuple): x, y, z in fractional coordinates
-        cell_params (dict): Contains a, b, c, alpha, beta, gamma
-        
-        Returns:
-        tuple: x, y, z in cartesian coordinates
-        """
         a = float(cell_params['_cell_length_a'])
         b = float(cell_params['_cell_length_b'])
         c = float(cell_params['_cell_length_c'])
@@ -188,9 +155,7 @@ class CrystalViewer(QWidget):
         return cart_coords
     
     def generate_supercell_atomic_positions(self, atomic_positions, repetitions, a, b, c):
-        """
         
-        """
         supercell_atomic_positions = []
         for i in range(repetitions[0]):
             for j in range(repetitions[1]):
@@ -205,22 +170,13 @@ class CrystalViewer(QWidget):
         return supercell_atomic_positions
 
     def visualize_supercell_unit_cells(self, vertices, repetitions, a, b, c):
-        """
-        Visualize individual unit cells in the supercell.
 
-        Args:
-            vertices (np.array): Vertices of the original unit cell.
-            repetitions (tuple): Number of repetitions in the x, y, and z directions.
-            a (float): Length of the unit cell in the x direction.
-            b (float): Length of the unit cell in the y direction.
-            c (float): Length of the unit cell in the z direction.
-        """
         for i in range(repetitions[0]):
             for j in range(repetitions[1]):
                 for k in range(repetitions[2]):
                     translation = np.array([i * a, j * b, k * c])
                     translated_vertices = vertices + translation
-                    self.visualize_unit_cell(translated_vertices, color='gray', line_width=1)
+                    self.visualize_unit_cell(translated_vertices, color='black', line_width=1)
 
     def calculate_unit_cell_vertices(self, a, b, c, alpha, beta, gamma, space_group_number):
             
@@ -302,7 +258,6 @@ class CrystalViewer(QWidget):
                 ]),
             }
 
-            # Apply adjustments based on space group number
             if space_group_number is not None:
                 for (start, end), adjustment in space_group_adjustments.items():
                     if start <= space_group_number <= end:
@@ -312,3 +267,52 @@ class CrystalViewer(QWidget):
                     print(f"Warning: Space group number {space_group_number} is not recognized.")
 
             return vertices
+    
+    def visualize_bonds(self, atomic_positions):
+
+        bonds = self.calculate_bonds(atomic_positions)
+
+        for bond in bonds:
+            start_atom, end_atom = bond
+            start = (start_atom['cart_x'], start_atom['cart_y'], start_atom['cart_z'])
+            end = (end_atom['cart_x'], end_atom['cart_y'], end_atom['cart_z'])
+            self.plotter.add_lines(np.array([start, end]), color='black', width=2)
+
+    def calculate_bonds(self, atomic_positions):
+        halogens = {'F', 'CL', 'BR', 'I', 'AT'}
+        
+        bonds = []
+        for i, atom1 in enumerate(atomic_positions):
+            element1 = self.extract_element(atom1.get('label', ''))
+            if element1.upper() == 'H':
+                continue
+
+            for j, atom2 in enumerate(atomic_positions[i+1:]):
+                element2 = self.extract_element(atom2.get('label', ''))
+                if element2.upper() == 'H':
+                    continue
+
+                if element1.upper() in halogens and element2.upper() in halogens:
+                    continue
+                
+                distance = self.calculate_distance(atom1, atom2)
+                if self.is_bonded(atom1, atom2, distance):
+                    bonds.append((atom1, atom2))
+        return bonds
+    
+    def calculate_distance(self, atom1, atom2):
+        dx = atom1['cart_x'] - atom2['cart_x']
+        dy = atom1['cart_y'] - atom2['cart_y']
+        dz = atom1['cart_z'] - atom2['cart_z']
+        return np.sqrt(dx**2 + dy**2 + dz**2)
+    
+    def is_bonded(self, atom1, atom2, distance):
+        element1 = self.extract_element(atom1['label'])
+        element2 = self.extract_element(atom2['label'])
+
+        radius1 = covalent_radii.get(element1, 0.75)
+        radius2 = covalent_radii.get(element2, 0.75)
+
+        threshold = 1.4 * (radius1 + radius2) #set to 1.4 but can be adjusted
+
+        return distance < threshold

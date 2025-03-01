@@ -9,14 +9,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("3D Crystal Viewer")
         self.setGeometry(100, 100, 800, 600)
 
-        # Create a central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # Create a layout for the central widget
         layout = QVBoxLayout(central_widget)
 
-        # Initialize the CIFInterface
         self.cif_interface = CIFInterface()
         layout.addWidget(self.cif_interface)
 
