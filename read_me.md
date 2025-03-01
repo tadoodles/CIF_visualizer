@@ -2,7 +2,7 @@
 
 A basic Crystallographic Information Format File Visualizer to visualize the crystal structures of molecules/compounds in 3D space. Version 1.0.0
 
-![CIF Visualizer Screenshot](images/cif_visualizer_sample_3.png)
+![CIF Visualizer Screenshot](cif_visualizer/images/cif_visualizer_sample_3.png)
 
 ## Prerequisites
  - PyQt5.Widgets
